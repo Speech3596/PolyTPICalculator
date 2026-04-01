@@ -493,7 +493,11 @@ with tab_score:
         return colours.get(val, "")
 
     if "위험등급" in display_df.columns:
-        styled = display_df.style.applymap(_risk_color, subset=["위험등급"])
+        try:
+            # pandas >= 2.1 uses .map(); older versions use .applymap()
+            styled = display_df.style.map(_risk_color, subset=["위험등급"])
+        except AttributeError:
+            styled = display_df.style.applymap(_risk_color, subset=["위험등급"])
         st.dataframe(styled, use_container_width=True, height=650)
     else:
         st.dataframe(display_df, use_container_width=True, height=650)

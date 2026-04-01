@@ -120,6 +120,27 @@ def _find_subject_col(cols: List[str], include_kws: List[str], exclude_kws: List
     return None
 
 
+def _level_sort_key(level_val) -> Tuple[int, int]:
+    """Sort key for level column: GT < MGT < S < MAG < others, then by numeric suffix.
+
+    Examples: GT1→(0,1), GT2→(0,2), MGT1→(1,1), S2→(2,2), MAG1→(3,1)
+    """
+    s = str(level_val or "").strip().upper()
+    if re.match(r"^GT\d*$", s):
+        group = 0
+    elif re.match(r"^MGT\d*$", s):
+        group = 1
+    elif re.match(r"^S\d*$", s):
+        group = 2
+    elif re.match(r"^MAG\d*$", s):
+        group = 3
+    else:
+        group = 4
+    num_m = re.search(r"(\d+)$", s)
+    num = int(num_m.group(1)) if num_m else 0
+    return (group, num)
+
+
 # ── File detection / parsing ─────────────────────────────────────────────────
 
 def detect_file_kind(name: str, expected_ext: str | None = None) -> str:
@@ -412,12 +433,20 @@ def build_student_summary(raw: pd.DataFrame) -> pd.DataFrame:
         "T-Score", "T-Eng", "T-Eng.F", "T-S.B", "QR", "B.CV",
     ]
     ordered = [c for c in ordered if c in score.columns]
+    out = score[ordered].copy()
 
-    return (
-        score[ordered]
-        .sort_values(["학생명", "학생코드", "시험유형", "월"])
+    # ── Sort: 월 asc → 캠퍼스 asc → 레벨(GT<MGT<S<MAG) → 학생명 asc ──────────
+    out["_lv_grp"] = (out["레벨"].apply(lambda x: _level_sort_key(x)[0])
+                      if "레벨" in out.columns else 0)
+    out["_lv_num"] = (out["레벨"].apply(lambda x: _level_sort_key(x)[1])
+                      if "레벨" in out.columns else 0)
+    sort_keys = ["월", "캠퍼스", "_lv_grp", "_lv_num", "학생명"]
+    out = (
+        out.sort_values(sort_keys, ascending=[True, True, True, True, True])
+        .drop(columns=["_lv_grp", "_lv_num"])
         .reset_index(drop=True)
     )
+    return out
 
 
 # ── TPI formula engine ───────────────────────────────────────────────────────
@@ -527,7 +556,8 @@ def compute_risk_grades(df: pd.DataFrame) -> pd.DataFrame:
         return out
 
     has_level = "레벨" in out.columns
-    grp_keys  = ["시험유형", "월"] + (["레벨"] if has_level else [])
+    has_year  = "연도" in out.columns
+    grp_keys  = ["시험유형"] + (["연도"] if has_year else []) + ["월"] + (["레벨"] if has_level else [])
     campus_keys = grp_keys + ["캠퍼스"]
 
     # ── Ranks ──────────────────────────────────────────────────────────────
@@ -634,6 +664,23 @@ def compute_risk_grades(df: pd.DataFrame) -> pd.DataFrame:
 
     # Clean temp columns
     out = out.drop(columns=["_bcv_pct", "_campus_bcv_pct", "_campus_tpi_pct"], errors="ignore")
+
+    # ── Final sort: 월 asc → 캠퍼스 asc → 레벨(GT<MGT<S<MAG) → TPI desc ───────
+    out["_lv_grp"] = (out["레벨"].apply(lambda x: _level_sort_key(x)[0])
+                      if "레벨" in out.columns else 0)
+    out["_lv_num"] = (out["레벨"].apply(lambda x: _level_sort_key(x)[1])
+                      if "레벨" in out.columns else 0)
+    tpi_col = "TPI" if "TPI" in out.columns else None
+    sort_keys  = ["월", "캠퍼스", "_lv_grp", "_lv_num"]
+    sort_asc   = [True, True, True, True]
+    if tpi_col:
+        sort_keys.append(tpi_col)
+        sort_asc.append(False)      # TPI 내림차순
+    out = (
+        out.sort_values(sort_keys, ascending=sort_asc)
+        .drop(columns=["_lv_grp", "_lv_num"])
+        .reset_index(drop=True)
+    )
     return out
 
 
