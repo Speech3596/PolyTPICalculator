@@ -120,6 +120,23 @@ def _find_subject_col(cols: List[str], include_kws: List[str], exclude_kws: List
     return None
 
 
+def _pct_to_quantile(pct: float) -> int:
+    """Convert a percentile (0–100) to a 1–5 quantile band.
+    0–20 → 1분위 / 20초과–40 → 2분위 / 40초과–60 → 3분위 /
+    60초과–80 → 4분위 / 80초과–100 → 5분위
+    """
+    if pct <= 20:
+        return 1
+    elif pct <= 40:
+        return 2
+    elif pct <= 60:
+        return 3
+    elif pct <= 80:
+        return 4
+    else:
+        return 5
+
+
 def _level_sort_key(level_val) -> Tuple[int, int]:
     """Sort key for level column: GT < MGT < S < MAG < others, then by numeric suffix.
 
@@ -616,42 +633,40 @@ def compute_risk_grades(df: pd.DataFrame) -> pd.DataFrame:
         if is_mag:
             if tpi_high and bcv_high:
                 reason = (
-                    f"MAG 레벨: TPI {tpi_pct:.0f}분위(상위 20%), "
-                    f"B.CV {bcv_pct:.0f}분위(상위 20%) /TPI {tpi_val:.1f}, B.CV {bcv_val:.1f}"
+                    f"TPI {_pct_to_quantile(tpi_pct)}분위 ( {round(tpi_pct):.0f}% ), "
+                    f"B.CV {_pct_to_quantile(bcv_pct)}분위 ( {round(bcv_pct):.0f}% )"
                 )
                 return "Top Risk", reason
             if c_tpi_hi and c_bcv_hi:
                 reason = (
-                    f"MAG 레벨: 캠퍼스 내 TPI 상위 20%({c_tpi_pct:.0f}분위), "
-                    f"캠퍼스 내 B.CV 상위 20%({c_bcv_pct:.0f}분위) /TPI {tpi_val:.1f}, B.CV {bcv_val:.1f}"
+                    f"캠퍼스 TPI {_pct_to_quantile(c_tpi_pct)}분위 ( {round(c_tpi_pct):.0f}% ), "
+                    f"캠퍼스 B.CV {_pct_to_quantile(c_bcv_pct)}분위 ( {round(c_bcv_pct):.0f}% )"
                 )
                 return "Local Top Risk", reason
 
         # ── Standard risk levels ────────────────────────────────────────────
         if tpi_low and bcv_low:
             reason = (
-                f"TPI {tpi_pct:.0f}분위(전체 하위 20%), "
-                f"B.CV {bcv_pct:.0f}분위(하위 20%) /TPI {tpi_val:.1f}, B.CV {bcv_val:.1f}"
+                f"TPI {_pct_to_quantile(tpi_pct)}분위 ( {round(tpi_pct):.0f}% ), "
+                f"B.CV {_pct_to_quantile(bcv_pct)}분위 ( {round(bcv_pct):.0f}% )"
             )
             return "At-Risk", reason
 
         if tpi_low:
             reason = (
-                f"TPI {tpi_pct:.0f}분위(전체 하위 20%) /TPI {tpi_val:.1f} "
-                f"(B.CV {bcv_val:.1f} 정상)"
+                f"TPI {_pct_to_quantile(tpi_pct)}분위 ( {round(tpi_pct):.0f}% )"
             )
             return "High-Risk", reason
 
         if bcv_low:
             reason = (
-                f"B.CV {bcv_pct:.0f}분위(하위 20%) /B.CV {bcv_val:.1f}, "
-                f"과목 간 편차 과대 (TPI {tpi_val:.1f} 정상)"
+                f"B.CV {_pct_to_quantile(bcv_pct)}분위 ( {round(bcv_pct):.0f}% )"
             )
             return "Latent Risk", reason
 
         if c_tpi_lo:
             reason = (
-                f"캠퍼스 내 TPI {c_tpi_pct:.0f}분위(하위 20%) /TPI {tpi_val:.1f}"
+                f"캠퍼스 TPI {_pct_to_quantile(c_tpi_pct)}분위 ( {round(c_tpi_pct):.0f}% )"
             )
             return "Local Risk", reason
 
@@ -774,7 +789,16 @@ def to_xlsx_bytes(df: pd.DataFrame, sheet_name: str = "결과") -> bytes:
             cell.alignment = header_align
             cell.border = border
 
-        # Auto column widths
+        # Auto column widths + number format (0.00) for numeric score columns
+        _score_keywords = {
+            "p-score", "t-score", "t-eng", "t-eng.f", "t-s.b", "qr", "b.cv", "tpi", "tpi분위",
+        }
+        _numeric_cols = set()
+        for col_name in df.columns:
+            ck = str(col_name).lower()
+            if ck in _score_keywords or pd.api.types.is_float_dtype(df[col_name]):
+                _numeric_cols.add(col_name)
+
         for col_idx, col_name in enumerate(df.columns, 1):
             values_len = (
                 df[col_name].astype(str).str.len().max()
@@ -782,6 +806,12 @@ def to_xlsx_bytes(df: pd.DataFrame, sheet_name: str = "결과") -> bytes:
             )
             width = min(max(len(str(col_name)) + 2, int(values_len) + 2), 40)
             ws.column_dimensions[ws.cell(1, col_idx).column_letter].width = width
+            # Apply 2-decimal format to numeric score columns (skip header row)
+            if col_name in _numeric_cols:
+                for row_idx in range(2, ws.max_row + 1):
+                    cell = ws.cell(row=row_idx, column=col_idx)
+                    if isinstance(cell.value, (int, float)):
+                        cell.number_format = "0.00"
 
         # Freeze header row
         ws.freeze_panes = "A2"

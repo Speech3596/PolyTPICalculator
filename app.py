@@ -622,7 +622,7 @@ with tab_desc:
 
 ---
 
-### TPI (Tertiary Performance Index)
+### TPI (Total Performance Index)
 - **정의**: 사용자 지정 가중치로 구성된 종합 성취 지수
 - **기본 공식**:
   ```
