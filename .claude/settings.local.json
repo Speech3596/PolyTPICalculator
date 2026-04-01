@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"import ast; ast.parse\\(open\\(''app.py'', encoding=''utf-8''\\).read\\(\\)\\); print\\(''app.py OK''\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\(''analysis_core.py'', encoding=''utf-8''\\).read\\(\\)\\); print\\(''analysis_core.py OK''\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\(''theme.py'', encoding=''utf-8''\\).read\\(\\)\\); print\\(''theme.py OK''\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\(''retentionsignal_core.py'', encoding=''utf-8''\\).read\\(\\)\\); print\\(''retentionsignal_core.py OK''\\)\")",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git remote:*)",
+      "Bash(git branch:*)",
+      "Bash(git push:*)",
+      "Bash(git pull:*)",
+      "Bash(git checkout:*)",
+      "Bash(git rebase:*)",
+      "Bash(wc -l /c/JH/AI/PolyRetentionSignal/*.py)",
+      "Bash(python -c \"import py_compile; py_compile.compile\\(''app.py'', doraise=True\\); print\\(''app.py OK''\\)\")",
+      "Bash(python -c \"import py_compile; py_compile.compile\\(''analysis_core.py'', doraise=True\\); print\\(''analysis_core.py OK''\\)\")",
+      "Bash(python -c \"import py_compile; py_compile.compile\\(''theme.py'', doraise=True\\); print\\(''theme.py OK''\\)\")",
+      "Bash(python -c \"import py_compile; py_compile.compile\\(''analysis_core.py'', doraise=True\\); py_compile.compile\\(''app.py'', doraise=True\\); print\\(''OK''\\)\")",
+      "Bash(python -c \"import py_compile; py_compile.compile\\(''analysis_core.py'', doraise=True\\); py_compile.compile\\(''app.py'', doraise=True\\); py_compile.compile\\(''theme.py'', doraise=True\\); print\\(''All OK''\\)\")",
+      "Bash(python -c \"import py_compile; py_compile.compile\\(''app.py'', doraise=True\\); print\\(''OK''\\)\")",
+      "Bash(python -c \":*)",
+      "Bash(grep -E \"\\\\.\\(py|jsx?|ts|tsx|json|md\\)$\")",
+      "Bash(gh auth:*)"
+    ]
+  }
+}
