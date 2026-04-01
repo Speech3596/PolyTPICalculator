@@ -1,4 +1,4 @@
-# PolyRetentionSignal 산식
+# Poly TPI Calculator 산식
 
 - P-Score = 총정답수 / 총문항수 × 100
 - 과목별 총점 = 과목정답수 / 과목문항수 × 100

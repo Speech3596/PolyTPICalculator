@@ -295,58 +295,66 @@ def build_student_summary(raw: pd.DataFrame) -> pd.DataFrame:
     """
     Build per-student summary for each (exam_type, year, month_num, level).
 
-    ALL metrics are computed exclusively from the 3 key subjects:
-      English · Eng. Foundations · Speech Building
-    Any other subjects (NF Studies, Listening, etc.) are IGNORED everywhere.
+    Metrics (P-Score, T-Score, T-Eng, T-Eng.F, T-S.B, QR, B.CV) are computed
+    exclusively from the 3 key subjects: English · Eng. Foundations · Speech Building.
+
+    Subject raw scores for ALL subjects are included in the output table for display.
+    Non-key subjects (NF Studies, Listening, etc.) appear as score columns only,
+    and do NOT affect any metric calculation.
 
     Metrics:
-      - P-Score  : correct / total items × 100  (3 subjects only)
+      - P-Score  : correct / total items × 100  (3 key subjects only)
       - T-Score  : standardised P-Score within group  [0, 100]
       - T-Eng    : T-Score of English subject raw score within group
       - T-Eng.F  : T-Score of Eng. Foundations raw score within group
       - T-S.B    : T-Score of Speech Building raw score within group
       - QR       : percentile rank of P-Score within group (top = 100 %)
-      - B.CV     : inverse CV of the 3 subject raw scores  [0, 100]
+      - B.CV     : inverse CV of the 3 key subject raw scores  [0, 100]
     """
     has_level = "level" in raw.columns and raw["level"].notna().any()
     grp_exam    = ["exam_type", "year", "month_num"] + (["level"] if has_level else [])
     grp_student = grp_exam + ["campus", "campus_type", "student_code", "student_name"]
 
-    # ── Filter to 3 key subjects ONLY ───────────────────────────────────────
+    # ── Filter to 3 key subjects for metric calculations ────────────────────
     raw_3 = raw[raw["subject"].apply(_is_key_subject)].copy()
     if raw_3.empty:
-        # Fallback: no matching subjects found — use all (will show empty metrics)
+        # Fallback: no matching subjects found — use all
         raw_3 = raw.copy()
 
-    # ── Subject raw scores (3 subjects) ─────────────────────────────────────
-    subj = raw_3.groupby(grp_student + ["subject"], dropna=False).agg(
+    # ── ALL subject raw scores for display (pivot from full raw) ─────────────
+    subj_all = raw.groupby(grp_student + ["subject"], dropna=False).agg(
         correct=("is_correct", "sum"),
         total=("is_correct", "count"),
     ).reset_index()
-    subj["subject_score"] = subj["correct"] / subj["total"] * 100
-    subj_wide = subj.pivot_table(
+    subj_all["subject_score"] = subj_all["correct"] / subj_all["total"] * 100
+    subj_wide_all = subj_all.pivot_table(
         index=grp_student, columns="subject",
         values="subject_score", aggfunc="first",
     ).reset_index()
-    subj_wide.columns.name = None
+    subj_wide_all.columns.name = None
 
-    # ── P-Score: 3 subjects only ─────────────────────────────────────────────
+    # ── P-Score: 3 key subjects only ─────────────────────────────────────────
     overall = raw_3.groupby(grp_student, dropna=False).agg(
         total_correct=("is_correct", "sum"),
         total_items=("is_correct", "count"),
     ).reset_index()
     overall["P-Score"] = overall["total_correct"] / overall["total_items"] * 100
 
-    score = overall.merge(subj_wide, on=grp_student, how="left")
-    subject_cols = [
+    # Merge metrics base + ALL subject scores for display
+    score = overall.merge(subj_wide_all, on=grp_student, how="left")
+
+    # All subject columns present in merged result
+    all_subject_cols = [
         c for c in score.columns
         if c not in grp_student + ["total_correct", "total_items", "P-Score"]
     ]
+    # 3 key subject columns (subset)
+    key_subject_cols = [c for c in all_subject_cols if _is_key_subject(c)]
 
     # ── Identify each of the 3 key subject columns ──────────────────────────
-    col_eng  = _find_subject_col(subject_cols, ["english"], ["found", "eng. f", "eng.f", "foundation"])
-    col_engf = _find_subject_col(subject_cols, ["found", "eng. f", "eng.f", "foundation"], [])
-    col_sb   = _find_subject_col(subject_cols, ["speech"], [])
+    col_eng  = _find_subject_col(key_subject_cols, ["english"], ["found", "eng. f", "eng.f", "foundation"])
+    col_engf = _find_subject_col(key_subject_cols, ["found", "eng. f", "eng.f", "foundation"], [])
+    col_sb   = _find_subject_col(key_subject_cols, ["speech"], [])
 
     # ── B.CV: inverse CV of the 3 key subject raw scores ───────────────────
     bcv_src_cols = [c for c in [col_eng, col_engf, col_sb] if c is not None and c in score.columns]
@@ -377,7 +385,7 @@ def build_student_summary(raw: pd.DataFrame) -> pd.DataFrame:
 
     # ── Clip & round ─────────────────────────────────────────────────────────
     metric_cols = ["P-Score", "T-Score", "T-Eng", "T-Eng.F", "T-S.B", "QR", "B.CV"]
-    for c in metric_cols + subject_cols:
+    for c in metric_cols + all_subject_cols:
         if c in score.columns:
             score[c] = clip_0_100(score[c]).round(2)
 
@@ -387,18 +395,20 @@ def build_student_summary(raw: pd.DataFrame) -> pd.DataFrame:
         id_cols.append("레벨")
     id_cols += ["시험유형", "연도", "월"]
 
-    # Subject cols: sort so English → Eng.F → Speech Building
-    def _subj_order(c: str) -> int:
+    # Subject cols: key subjects first (English → Eng.F → Speech Building), then others
+    def _subj_order(c: str) -> tuple:
         cl = c.lower()
+        if not _is_key_subject(c):
+            return (1, c)           # non-key subjects after key subjects
         if "speech" in cl:
-            return 2
+            return (0, "c_" + c)
         if any(k in cl for k in ["found", "eng. f"]):
-            return 1
-        return 0  # English
+            return (0, "b_" + c)
+        return (0, "a_" + c)        # English first
 
-    subject_cols_sorted = sorted(subject_cols, key=_subj_order)
+    all_subject_cols_sorted = sorted(all_subject_cols, key=_subj_order)
 
-    ordered = id_cols + ["P-Score"] + subject_cols_sorted + [
+    ordered = id_cols + ["P-Score"] + all_subject_cols_sorted + [
         "T-Score", "T-Eng", "T-Eng.F", "T-S.B", "QR", "B.CV",
     ]
     ordered = [c for c in ordered if c in score.columns]

@@ -1,5 +1,5 @@
 """
-PolyRetentionSignal Design System / Theme Tokens
+Poly TPI Calculator — Design System / Theme Tokens
 All color, spacing, and style constants are centralized here.
 """
 from __future__ import annotations

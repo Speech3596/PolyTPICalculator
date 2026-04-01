@@ -94,6 +94,18 @@ if not st.session_state.data_loaded:
                 safe_error("처리 가능한 데이터가 없습니다. 파일을 확인해 주세요.")
                 st.session_state.processing = False
                 st.stop()
+            # Auto-compute TPI with default weights immediately after loading
+            _default_formula = (
+                "(T*30.0 + TENG*10.0 + TENGF*5.0 + TSB*5.0 + QR*20.0 + BCV*30.0) / 100.0"
+            )
+            try:
+                _full_tpi = apply_tpi_formula(summary_df, _default_formula)
+                _full_enriched = compute_risk_grades(_full_tpi)
+                st.session_state.tpi_result   = _full_enriched
+                st.session_state.formula_used = _default_formula
+            except Exception:
+                st.session_state.tpi_result   = None
+                st.session_state.formula_used = None
             st.session_state.raw_df    = raw_df
             st.session_state.item_df   = item_df
             st.session_state.summary_df = summary_df

@@ -1,5 +1,5 @@
 """
-PolyRetentionSignal — Analysis Core
+Poly TPI Calculator — Analysis Core (legacy, not used in main app)
 Cohort extraction, statistics, regression, survival analysis, risk scoring, downloads.
 All statistical analysis functions are separated from UI rendering.
 """

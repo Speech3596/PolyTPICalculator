@@ -1,4 +1,4 @@
-# PolyRetentionSignal
+# Poly TPI Calculator
 
 ## 패키지 구성
 - `app.py` : Streamlit UI 진입점
