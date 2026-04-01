@@ -262,9 +262,13 @@ def read_single_exam(file_obj) -> pd.DataFrame:
 # ── Statistics builders ──────────────────────────────────────────────────────
 
 def build_item_stats(raw: pd.DataFrame) -> pd.DataFrame:
-    has_level = "level" in raw.columns and raw["level"].notna().any()
+    """Item accuracy stats for the 3 key subjects only."""
+    raw_3 = raw[raw["subject"].apply(_is_key_subject)].copy()
+    if raw_3.empty:
+        raw_3 = raw.copy()
+    has_level = "level" in raw_3.columns and raw_3["level"].notna().any()
     grp = ["exam_type", "year", "month_num"] + (["level"] if has_level else []) + ["subject", "item_no"]
-    item = raw.groupby(grp, dropna=False).agg(
+    item = raw_3.groupby(grp, dropna=False).agg(
         응시자수=("student_code", "nunique"),
         정답자수=("is_correct", "sum"),
     ).reset_index()
@@ -272,26 +276,50 @@ def build_item_stats(raw: pd.DataFrame) -> pd.DataFrame:
     return item
 
 
+def _is_key_subject(subj_name: str) -> bool:
+    """Return True if subject name is one of the 3 key subjects."""
+    sl = str(subj_name).lower()
+    # Speech Building
+    if "speech" in sl:
+        return True
+    # Eng. Foundations / English Foundation
+    if any(kw in sl for kw in ["found", "eng. f", "eng.f", "foundation"]):
+        return True
+    # English (pure — not Foundation)
+    if "english" in sl and not any(kw in sl for kw in ["found", "foundation"]):
+        return True
+    return False
+
+
 def build_student_summary(raw: pd.DataFrame) -> pd.DataFrame:
     """
     Build per-student summary for each (exam_type, year, month_num, level).
 
-    Metrics computed:
-      - P-Score : total correct / total items × 100 (all subjects)
-      - T-Score : standardised P-Score within group (T = 50 + 10z, clipped [0,100])
-      - T-Eng   : T-Score of English subject score within group
-      - T-Eng.F : T-Score of Eng. Foundations subject score within group
-      - T-S.B   : T-Score of Speech Building subject score within group
-      - QR      : percentile rank of P-Score within group (top = 100 %)
-      - B.CV    : inverse CV of the 3 key subject raw scores (100 − CV, higher = consistent)
-                  Only English, Eng.Foundations, Speech Building are used; others ignored.
+    ALL metrics are computed exclusively from the 3 key subjects:
+      English · Eng. Foundations · Speech Building
+    Any other subjects (NF Studies, Listening, etc.) are IGNORED everywhere.
+
+    Metrics:
+      - P-Score  : correct / total items × 100  (3 subjects only)
+      - T-Score  : standardised P-Score within group  [0, 100]
+      - T-Eng    : T-Score of English subject raw score within group
+      - T-Eng.F  : T-Score of Eng. Foundations raw score within group
+      - T-S.B    : T-Score of Speech Building raw score within group
+      - QR       : percentile rank of P-Score within group (top = 100 %)
+      - B.CV     : inverse CV of the 3 subject raw scores  [0, 100]
     """
     has_level = "level" in raw.columns and raw["level"].notna().any()
-    grp_exam = ["exam_type", "year", "month_num"] + (["level"] if has_level else [])
+    grp_exam    = ["exam_type", "year", "month_num"] + (["level"] if has_level else [])
     grp_student = grp_exam + ["campus", "campus_type", "student_code", "student_name"]
 
-    # ── Subject scores ──────────────────────────────────────────────────────
-    subj = raw.groupby(grp_student + ["subject"], dropna=False).agg(
+    # ── Filter to 3 key subjects ONLY ───────────────────────────────────────
+    raw_3 = raw[raw["subject"].apply(_is_key_subject)].copy()
+    if raw_3.empty:
+        # Fallback: no matching subjects found — use all (will show empty metrics)
+        raw_3 = raw.copy()
+
+    # ── Subject raw scores (3 subjects) ─────────────────────────────────────
+    subj = raw_3.groupby(grp_student + ["subject"], dropna=False).agg(
         correct=("is_correct", "sum"),
         total=("is_correct", "count"),
     ).reset_index()
@@ -302,8 +330,8 @@ def build_student_summary(raw: pd.DataFrame) -> pd.DataFrame:
     ).reset_index()
     subj_wide.columns.name = None
 
-    # ── Overall P-Score ─────────────────────────────────────────────────────
-    overall = raw.groupby(grp_student, dropna=False).agg(
+    # ── P-Score: 3 subjects only ─────────────────────────────────────────────
+    overall = raw_3.groupby(grp_student, dropna=False).agg(
         total_correct=("is_correct", "sum"),
         total_items=("is_correct", "count"),
     ).reset_index()
@@ -315,32 +343,29 @@ def build_student_summary(raw: pd.DataFrame) -> pd.DataFrame:
         if c not in grp_student + ["total_correct", "total_items", "P-Score"]
     ]
 
-    # ── Identify the 3 key subject columns ─────────────────────────────────
+    # ── Identify each of the 3 key subject columns ──────────────────────────
     col_eng  = _find_subject_col(subject_cols, ["english"], ["found", "eng. f", "eng.f", "foundation"])
     col_engf = _find_subject_col(subject_cols, ["found", "eng. f", "eng.f", "foundation"], [])
     col_sb   = _find_subject_col(subject_cols, ["speech"], [])
 
     # ── B.CV: inverse CV of the 3 key subject raw scores ───────────────────
     bcv_src_cols = [c for c in [col_eng, col_engf, col_sb] if c is not None and c in score.columns]
-    if bcv_src_cols:
-        score["B.CV"] = score[bcv_src_cols].apply(inverse_cv_score, axis=1)
-    else:
-        score["B.CV"] = 100.0
+    score["B.CV"] = score[bcv_src_cols].apply(inverse_cv_score, axis=1) if bcv_src_cols else 100.0
 
-    # ── T-Score (overall P-Score within group) ──────────────────────────────
+    # ── T-Score: standardised P-Score within group ───────────────────────────
     score["T-Score"] = score.groupby(grp_exam, dropna=False)["P-Score"].transform(tscore_from_series)
 
-    # ── QR (percentile of P-Score within group) ─────────────────────────────
+    # ── QR: percentile of P-Score within group ───────────────────────────────
     score["QR"] = score.groupby(grp_exam, dropna=False)["P-Score"].transform(percentile_rank)
 
-    # ── T-Eng, T-Eng.F, T-S.B (subject T-scores within group) ──────────────
+    # ── T-Eng / T-Eng.F / T-S.B ─────────────────────────────────────────────
     for alias, col in [("T-Eng", col_eng), ("T-Eng.F", col_engf), ("T-S.B", col_sb)]:
         if col and col in score.columns:
             score[alias] = score.groupby(grp_exam, dropna=False)[col].transform(tscore_from_series)
         else:
             score[alias] = np.nan
 
-    # ── Rename display columns ──────────────────────────────────────────────
+    # ── Display column names ─────────────────────────────────────────────────
     score["캠퍼스"]   = score["campus"]
     score["학생명"]   = score["student_name"]
     score["학생코드"] = score["student_code"]
@@ -350,20 +375,28 @@ def build_student_summary(raw: pd.DataFrame) -> pd.DataFrame:
     if has_level:
         score["레벨"] = score["level"]
 
-    # ── Clip & round all numeric metrics ───────────────────────────────────
+    # ── Clip & round ─────────────────────────────────────────────────────────
     metric_cols = ["P-Score", "T-Score", "T-Eng", "T-Eng.F", "T-S.B", "QR", "B.CV"]
     for c in metric_cols + subject_cols:
         if c in score.columns:
             score[c] = clip_0_100(score[c]).round(2)
 
-    # ── Column order ────────────────────────────────────────────────────────
+    # ── Column order ─────────────────────────────────────────────────────────
     id_cols = ["캠퍼스", "학생명", "학생코드"]
     if has_level:
         id_cols.append("레벨")
     id_cols += ["시험유형", "연도", "월"]
 
-    # Sorted subject columns
-    subject_cols_sorted = sorted(subject_cols)
+    # Subject cols: sort so English → Eng.F → Speech Building
+    def _subj_order(c: str) -> int:
+        cl = c.lower()
+        if "speech" in cl:
+            return 2
+        if any(k in cl for k in ["found", "eng. f"]):
+            return 1
+        return 0  # English
+
+    subject_cols_sorted = sorted(subject_cols, key=_subj_order)
 
     ordered = id_cols + ["P-Score"] + subject_cols_sorted + [
         "T-Score", "T-Eng", "T-Eng.F", "T-S.B", "QR", "B.CV",
