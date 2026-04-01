@@ -5,7 +5,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 
-from retentionsignal_core import (
+from tpi_core import (
     apply_tpi_formula,
     build_item_stats,
     build_student_summary,
@@ -74,7 +74,7 @@ def safe_error(msg: str):
 
 
 def load_all(exam_objs):
-    from retentionsignal_core import read_single_exam, build_item_stats, build_student_summary
+    from tpi_core import read_single_exam, build_item_stats, build_student_summary
     frames = [read_single_exam(f) for f in exam_objs]
     raw = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
     item = build_item_stats(raw) if not raw.empty else pd.DataFrame()

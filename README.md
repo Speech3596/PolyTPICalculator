@@ -2,7 +2,7 @@
 
 ## 패키지 구성
 - `app.py` : Streamlit UI 진입점
-- `retentionsignal_core.py` : 로딩/정리/산식/매트릭스 생성 코어
+- `tpi_core.py` : 로딩/정리/산식/매트릭스 생성 코어
 - `requirements.txt` : 의존성
 - `FORMULAS.md` : 산식 정의
 - `run.bat` : 로컬 원클릭 실행 배치
@@ -19,7 +19,7 @@
 ## GitHub → Streamlit Cloud 배포
 - 저장소 루트에 아래 파일 그대로 업로드
   - `app.py`
-  - `retentionsignal_core.py`
+  - `tpi_core.py`
   - `requirements.txt`
   - `README.md`
   - `FORMULAS.md`
