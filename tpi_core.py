@@ -52,7 +52,7 @@ REQUIRED_EXAM_COLUMNS = [
 
 # ── Risk grade info (for 지표 설명 tab) ─────────────────────────────────────
 RISK_GRADE_DESCRIPTIONS = {
-    "At-Risk":       "전체 TPI 하위 20% 이면서 B.CV 하위 20%",
+    "Critical-Risk": "전체 TPI 하위 20% 이면서 B.CV 하위 20%",
     "High-Risk":     "전체 TPI 하위 20% (B.CV는 정상)",
     "Latent Risk":   "B.CV 하위 20% (TPI는 정상 /과목 편차가 커 잠재적 위험)",
     "Local Risk":    "캠퍼스 내 TPI 하위 20% (다른 위험등급 미해당)",
@@ -563,7 +563,7 @@ def compute_risk_grades(df: pd.DataFrame) -> pd.DataFrame:
       Then fall through to normal risk levels below.
 
     For all students:
-      3. At-Risk       /TPI ≤ 20th pct  AND B.CV ≤ 20th pct
+      3. Critical-Risk /TPI ≤ 20th pct  AND B.CV ≤ 20th pct
       4. High-Risk     /TPI ≤ 20th pct  (B.CV normal)
       5. Latent Risk   /B.CV ≤ 20th pct (TPI normal)
       6. Local Risk    /campus TPI ≤ 20th pct (none of the above)
@@ -650,7 +650,7 @@ def compute_risk_grades(df: pd.DataFrame) -> pd.DataFrame:
                 f"TPI {_pct_to_quantile(tpi_pct)}분위 ( {round(tpi_pct):.0f}% ), "
                 f"B.CV {_pct_to_quantile(bcv_pct)}분위 ( {round(bcv_pct):.0f}% )"
             )
-            return "At-Risk", reason
+            return "Critical-Risk", reason
 
         if tpi_low:
             reason = (
