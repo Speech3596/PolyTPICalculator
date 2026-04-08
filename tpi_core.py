@@ -51,13 +51,15 @@ REQUIRED_EXAM_COLUMNS = [
 ]
 
 # ── Risk grade info (for 지표 설명 tab) ─────────────────────────────────────
-RISK_GRADE_DESCRIPTIONS = {
+RISK_GRADE_DESCRIPTIONS_GLOBAL = {
     "Critical-Risk": "전체 TPI 하위 20% 이면서 B.CV 하위 20%",
     "High-Risk":     "전체 TPI 하위 20% (B.CV는 정상)",
     "Latent Risk":   "B.CV 하위 20% (TPI는 정상 /과목 편차가 커 잠재적 위험)",
-    "Local Risk":    "캠퍼스 내 TPI 하위 20% (다른 위험등급 미해당)",
     "Top Risk":      "MAG 레벨 전용: 전체 TPI 상위 20% 이면서 B.CV 상위 20%",
-    "Local Top Risk": "MAG 레벨 전용: 캠퍼스 내 TPI·B.CV 모두 상위 20% (Top Risk 미해당)",
+}
+RISK_GRADE_DESCRIPTIONS_LOCAL = {
+    "Local Risk":     "캠퍼스 내 TPI 하위 20%",
+    "Local Top Risk": "MAG 레벨 전용: 캠퍼스 내 TPI 상위 20% 이면서 B.CV 상위 20%",
 }
 
 
@@ -610,41 +612,26 @@ def compute_risk_grades(df: pd.DataFrame) -> pd.DataFrame:
         .transform(percentile_rank)
     )
 
-    # ── Row-wise risk assignment ─────────────────────────────────────────────
-    def _assign(row):
+    # ── Row-wise risk assignment (전체) ──────────────────────────────────────
+    def _assign_global(row):
         tpi_pct        = float(row.get("TPI분위",          50) or 50)
         bcv_pct        = float(row.get("_bcv_pct",         50) or 50)
-        c_tpi_pct      = float(row.get("_campus_tpi_pct",  50) or 50)
-        c_bcv_pct      = float(row.get("_campus_bcv_pct",  50) or 50)
-        tpi_val        = float(row.get("TPI",   0) or 0)
-        bcv_val        = float(row.get("B.CV",  0) or 0)
         level          = str(row.get("레벨", "") or "")
         is_mag         = bool(re.match(r"(?i)^MAG\d*", level.strip()))
 
         tpi_low  = tpi_pct   <= 20
         bcv_low  = bcv_pct   <= 20
-        c_tpi_lo = c_tpi_pct <= 20
         tpi_high = tpi_pct   >= 80
         bcv_high = bcv_pct   >= 80
-        c_tpi_hi = c_tpi_pct >= 80
-        c_bcv_hi = c_bcv_pct >= 80
 
-        # ── MAG top performer labels ────────────────────────────────────────
-        if is_mag:
-            if tpi_high and bcv_high:
-                reason = (
-                    f"TPI {_pct_to_quantile(tpi_pct)}분위 ( {round(tpi_pct):.0f}% ), "
-                    f"B.CV {_pct_to_quantile(bcv_pct)}분위 ( {round(bcv_pct):.0f}% )"
-                )
-                return "Top Risk", reason
-            if c_tpi_hi and c_bcv_hi:
-                reason = (
-                    f"캠퍼스 TPI {_pct_to_quantile(c_tpi_pct)}분위 ( {round(c_tpi_pct):.0f}% ), "
-                    f"캠퍼스 B.CV {_pct_to_quantile(c_bcv_pct)}분위 ( {round(c_bcv_pct):.0f}% )"
-                )
-                return "Local Top Risk", reason
+        # MAG top performer (전체)
+        if is_mag and tpi_high and bcv_high:
+            reason = (
+                f"TPI {_pct_to_quantile(tpi_pct)}분위 ( {round(tpi_pct):.0f}% ), "
+                f"B.CV {_pct_to_quantile(bcv_pct)}분위 ( {round(bcv_pct):.0f}% )"
+            )
+            return "Top Risk", reason
 
-        # ── Standard risk levels ────────────────────────────────────────────
         if tpi_low and bcv_low:
             reason = (
                 f"TPI {_pct_to_quantile(tpi_pct)}분위 ( {round(tpi_pct):.0f}% ), "
@@ -664,6 +651,27 @@ def compute_risk_grades(df: pd.DataFrame) -> pd.DataFrame:
             )
             return "Latent Risk", reason
 
+        return "", ""
+
+    # ── Row-wise risk assignment (캠퍼스) ─────────────────────────────────────
+    def _assign_local(row):
+        c_tpi_pct      = float(row.get("_campus_tpi_pct",  50) or 50)
+        c_bcv_pct      = float(row.get("_campus_bcv_pct",  50) or 50)
+        level          = str(row.get("레벨", "") or "")
+        is_mag         = bool(re.match(r"(?i)^MAG\d*", level.strip()))
+
+        c_tpi_lo = c_tpi_pct <= 20
+        c_tpi_hi = c_tpi_pct >= 80
+        c_bcv_hi = c_bcv_pct >= 80
+
+        # MAG top performer (캠퍼스)
+        if is_mag and c_tpi_hi and c_bcv_hi:
+            reason = (
+                f"캠퍼스 TPI {_pct_to_quantile(c_tpi_pct)}분위 ( {round(c_tpi_pct):.0f}% ), "
+                f"캠퍼스 B.CV {_pct_to_quantile(c_bcv_pct)}분위 ( {round(c_bcv_pct):.0f}% )"
+            )
+            return "Local Top Risk", reason
+
         if c_tpi_lo:
             reason = (
                 f"캠퍼스 TPI {_pct_to_quantile(c_tpi_pct)}분위 ( {round(c_tpi_pct):.0f}% )"
@@ -672,10 +680,15 @@ def compute_risk_grades(df: pd.DataFrame) -> pd.DataFrame:
 
         return "", ""
 
-    result = out.apply(_assign, axis=1, result_type="expand")
-    result.columns = ["위험등급", "사유"]
-    out["위험등급"] = result["위험등급"]
-    out["사유"]     = result["사유"]
+    res_g = out.apply(_assign_global, axis=1, result_type="expand")
+    res_g.columns = ["위험등급(전체)", "사유(전체)"]
+    out["위험등급(전체)"] = res_g["위험등급(전체)"]
+    out["사유(전체)"]     = res_g["사유(전체)"]
+
+    res_l = out.apply(_assign_local, axis=1, result_type="expand")
+    res_l.columns = ["위험등급(캠퍼스)", "사유(캠퍼스)"]
+    out["위험등급(캠퍼스)"] = res_l["위험등급(캠퍼스)"]
+    out["사유(캠퍼스)"]     = res_l["사유(캠퍼스)"]
 
     # Clean temp columns
     out = out.drop(columns=["_bcv_pct", "_campus_bcv_pct", "_campus_tpi_pct"], errors="ignore")
